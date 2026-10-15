@@ -4,7 +4,7 @@ import os
 import shutil
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import List, Optional, Tuple
+from typing import List, Tuple
 
 from config import OUTPUT_PATH
 
@@ -18,17 +18,19 @@ def save_metadata(
     script: str,
     search_terms: List[str],
     video_path: Path,
-    hook_style: Optional[str] = None,
-    tags: Optional[List[str]] = None,
+    **fields,
 ) -> Path:
+    """Move the video into today's output folder next to a JSON of its metadata.
+
+    `fields` are saved too, e.g. the hook style, tags and fact check result.
+    """
     metadata = {
         "title": title,
         "description": description,
         "topic": topic,
-        "hook_style": hook_style,
         "script": script,
         "search_terms": search_terms,
-        "tags": tags or [],
+        **fields,
         "created_at": datetime.now(timezone.utc).isoformat(),
     }
 

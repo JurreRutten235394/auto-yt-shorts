@@ -1,11 +1,12 @@
 import json
 import logging
-from typing import List
+from typing import List, Tuple
 
 import requests
 from openai import OpenAI
 
 from config import (
+    CHANNEL_NICHE,
     HOOK_STYLES,
     NEWS_API_KEY,
     OPENAI_API_KEY,
@@ -25,11 +26,20 @@ if OPENAI_BASE_URL:
 
 client = OpenAI(**client_kwargs)
 
-_base_prompt = """
+_base_prompt = f"""
 You are a passionate Tiktok creator and you want to create more short form content. Your videos contain a voiceover, stock footage and subtitles. 
+Your channel is about {CHANNEL_NICHE}, and every video is made for people who are interested in that.
 The content of the video is one informative, interesting or mind-blowing fact about the topic which people will find interesting.
+Every fact must be true and well documented. Never invent, exaggerate or speculate.
 Your videos are not too complex, they should bring the message across in a simple and engaging way.
 """
+
+# A script gets this many checks to pass, with corrections in between
+FACT_CHECK_ROUNDS = 3
+
+
+class FactCheckFailed(Exception):
+    pass
 
 
 def get_topic(records: List[dict] = ()) -> str:
@@ -63,6 +73,7 @@ REQUIREMENTS:
 - Create curiosity gaps that demand answers
 - Use power words: secret, revealed, discovered, shocking, hidden, truth, exposed
 - Make the first 3 words irresistible
+- Only promise what a 30 second video about a true fact can deliver
 
 {format_examples(records)}
 """
@@ -290,7 +301,9 @@ Create a script that hooks viewers IMMEDIATELY. The first 3-5 words are CRITICAL
 SCRIPT STRUCTURE:
 1. HOOK (0-3 seconds): Start with an attention-grabbing opener that creates instant intrigue
 2. REVELATION (3-15 seconds): Deliver the shocking/interesting fact with specific details
-3. IMPACT (15-30 seconds): End with why this matters or a memorable conclusion
+3. IMPACT (15-27 seconds): Explain why this matters
+4. LOOP (last sentence): End on a phrase that leads straight back into the opening line, so the Short sounds like one continuous thought when it replays.
+   For example, a script that opens with "Nobody can explain the Voynich manuscript." could end with "...and that's exactly why"
 
 OPENING HOOK FORMULA:
 {_hook_formula(hook_style)}
@@ -301,7 +314,7 @@ REQUIREMENTS:
 - Use conversational, natural speech patterns
 - Include specific names, numbers, or details when possible
 - Create curiosity that demands immediate answers
-- End with impact that makes them want to share
+- No sign-off, summary or call to action at the end: the last sentence must loop back into the first
 - 15-30 seconds of speaking time
 
 TONE: Conversational but urgent, like you're sharing an incredible secret with a friend.
@@ -421,3 +434,101 @@ def _fit_tag_limit(tags: List[str], limit: int = 500) -> List[str]:
         used += cost
 
     return kept
+
+
+def check_facts(title: str, script: str) -> Tuple[str, List[str]]:
+    """Fact check the script, correcting it if needed.
+
+    Returns the script that passed and the problems that were corrected on the
+    way. Raises FactCheckFailed when the video can't be made accurate.
+    """
+    corrections = []
+    for _ in range(FACT_CHECK_ROUNDS):
+        result = _fact_check(title, script)
+
+        if result.get("verdict") == "pass":
+            return script, corrections
+
+        if result.get("verdict") == "fix" and result.get("script"):
+            logger.info(f"[Fact Check Corrections] {result.get('issues')}")
+            corrections += result.get("issues") or []
+            script = result["script"]
+            continue
+
+        raise FactCheckFailed("; ".join(result.get("issues") or ["no reason given"]))
+
+    raise FactCheckFailed(f"didn't pass after {FACT_CHECK_ROUNDS} checks")
+
+
+def _fact_check(title: str, script: str) -> dict:
+    _prompt = f"""
+You are a strict fact checker for a YouTube channel about {CHANNEL_NICHE}. Check this Short before it is published.
+
+Title: "{title}"
+Script:
+{script}
+
+Check every factual claim: names, numbers, dates, records, quotes and causes. A claim only passes if it is well documented and you are confident it is true. These are problems:
+- claims that are false, disputed, outdated or that you can't confirm
+- numbers or details that are more precise than the evidence supports
+- accusations against real people or companies that aren't established fact
+- a title that promises something the script doesn't deliver
+
+Then decide on a verdict:
+- "pass" if there are no problems
+- "fix" if correcting or removing the problems still leaves a good video. Rewrite the script with the smallest changes that make it accurate, keeping its opening hook, its last sentence that loops back into the opening, and its length.
+- "reject" if the title or the main fact is wrong, so no correction can save the video
+"""
+    _prompt += """
+Respond with JSON in the following format:
+{
+    "verdict": "pass | fix | reject",
+    "issues": ["What is wrong and why", ...],
+    "script": "The corrected script if the verdict is fix, otherwise the original script"
+}
+"""
+
+    response = (
+        client.chat.completions.create(
+            messages=[{"role": "user", "content": _prompt}],
+            response_format={"type": "json_object"},
+            model=OPENAI_MODEL,
+        )
+        .choices[0]
+        .message.content
+    )
+
+    return json.loads(response)
+
+
+def get_hook_caption(title: str, script: str) -> str:
+    _prompt = (
+        _base_prompt
+        + f"""
+You have decided on the title for your video: "{title}".
+The Script for your video is:
+{script}
+
+Write the text that is shown big on screen during the first 3 seconds, while the voiceover starts. It's the first thing a viewer sees and decides whether to keep watching.
+
+REQUIREMENTS:
+- 3 to 7 words
+- Makes the viewer curious about the fact without giving it away
+- Matches what the title promises and what the voiceover says first
+- No hashtags, emojis or quotation marks
+
+ONLY RETURN THE RAW TEXT. DO NOT RETURN ANYTHING ELSE.
+"""
+    )
+
+    response = (
+        client.chat.completions.create(
+            messages=[{"role": "user", "content": _prompt}],
+            response_format={"type": "text"},
+            model=OPENAI_MODEL,
+        )
+        .choices[0]
+        .message.content.strip()
+    )
+
+    return response.strip('"')

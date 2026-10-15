@@ -5,23 +5,24 @@ import dotenv
 
 dotenv.load_dotenv()
 
+# What every video on the channel is about. YouTube finds the right viewers for
+# a channel faster when all of its Shorts are for the same audience.
+CHANNEL_NICHE = "science and space"
+
+# Subtopics of the niche, picked by past performance (see utils/performance.py)
 POSSIBLE_TOPICS = [
-    # "NASA Facts",
-    "Controversial Events",
-    # "Bold Predictions",
-    "Controversial Actions by Celebrities",
-    "Controversial Actions by Well Known Companies",
-    "Controversial Science Facts",
-    "Controversial Historical Mysteries",
-    "Controversial Tech Milestones",
-    "Controversial Cultural Oddities",
-    "Controversial Psychological Phenomena",
-    "Controversial Space Exploration Events",
-    "Controvercies around Cryptocurrency and Blockchain",
-    "Controversial Laws",
-    "Controversial Secrets of Successful People",
-    "Controversial Eco-Friendly movements",
-    "Controversial World Records",
+    "Planets and moons of our solar system",
+    "Stars, black holes and galaxies",
+    "Space missions and astronauts",
+    "The human body",
+    "The human brain and senses",
+    "Animal superpowers",
+    "Deep sea creatures",
+    "Volcanoes, earthquakes and extreme weather",
+    "Physics of everyday things",
+    "Chemistry and the elements",
+    "Accidental scientific discoveries",
+    "Dinosaurs and prehistoric life",
 ]
 
 # Opening formulas for titles and scripts. Each run uses one, chosen from past
@@ -31,7 +32,6 @@ HOOK_STYLES = {
         "You won't believe...",
         "This will shock you...",
         "Scientists discovered...",
-        "You've been lied to...",
     ],
     "Numbers/Stats": [
         "97% of people don't know...",
@@ -50,8 +50,8 @@ HOOK_STYLES = {
     ],
     "Authority": [
         "Experts revealed...",
-        "[Celebrity name] uses this...",
-        "Billionaires know this secret...",
+        "NASA confirmed...",
+        "Biologists were stunned when...",
     ],
     "Contradiction": [
         "Everyone thinks [X] but actually...",
@@ -117,3 +117,11 @@ CONTAINS_SYNTHETIC_MEDIA = (
 
 # Number of days after upload whose stats are used to compare videos
 ANALYTICS_WINDOW_DAYS = int(os.environ.get("ANALYTICS_WINDOW_DAYS", "3"))
+
+# Overlay a clip from secondary_video/ on the bottom of each video. Only use
+# footage you made yourself: Shorts made of reused clips get less reach.
+USE_SECONDARY_VIDEO = os.environ.get("USE_SECONDARY_VIDEO", "false").lower() == "true"
+
+# Hold generated videos for approval with `python review.py` instead of
+# uploading them straight away
+REVIEW_BEFORE_UPLOAD = os.environ.get("REVIEW_BEFORE_UPLOAD", "false").lower() == "true"

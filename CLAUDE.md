@@ -36,6 +36,9 @@ python test.py
 
 # Sync YouTube Analytics stats and print what's performing best
 python -m utils.analytics
+
+# Approve, edit or reject videos waiting for review (REVIEW_BEFORE_UPLOAD=true)
+python review.py
 ```
 
 ### Project Structure & Configuration
@@ -45,7 +48,7 @@ python -m utils.analytics
 - `utils/` - Core functionality modules
 - `credentials/` - YouTube OAuth credentials (client_secrets.json, tokens.json)
 - `music/` - Background music files (.mp3)
-- `secondary_video/` - Secondary video content (.mp4)
+- `secondary_video/` - Optional footage you made yourself, overlaid when `USE_SECONDARY_VIDEO=true` (.mp4)
 - `temp/` - Temporary files during processing
 - `output/` - Final generated videos organized by date
 
@@ -53,25 +56,28 @@ python -m utils.analytics
 
 This is an automated YouTube Shorts/TikTok video generation system that creates engaging short-form content using AI. The application follows a pipeline architecture:
 
-### Core Pipeline (main.py:71-152)
+### Core Pipeline (main.py:96-209)
 1. **Performance Sync** - Pulls stats for past uploads from the YouTube Analytics API into their metadata
-2. **Topic & Hook Selection** - Picks a topic and hook style, favouring what performed best
-3. **Content Creation** - Generates titles, scripts, descriptions and tags using OpenAI, with the best and worst past videos as examples
-4. **Media Assembly** - Combines stock footage, voiceover, and subtitles
-5. **Upload & Storage** - Saves metadata, uploads to YouTube and records the video ID
+2. **Topic & Hook Selection** - Picks a subtopic of `CHANNEL_NICHE` and a hook style, favouring what performed best
+3. **Content Creation** - Generates titles and looping scripts using OpenAI, with the best and worst past videos as examples
+4. **Fact Check** - Corrects inaccurate scripts, or drops the title and tries the next-ranked one
+5. **Media Assembly** - Combines stock footage, voiceover, subtitles and a hook caption on the first frame
+6. **Upload & Storage** - Saves metadata, then uploads and records the video ID, or queues it for `review.py`
 
 ### Key Modules
 
 **utils/llm.py** - OpenAI integration for content generation
 - `get_topic()`, `get_hook_style()` - Pick from `POSSIBLE_TOPICS` / `HOOK_STYLES` using past performance
-- `get_titles()`, `get_script()` - AI-generated content in the chosen hook style
+- `get_titles()`, `get_script()` - AI-generated content in the chosen hook style; scripts end on a line that loops back into the opening
+- `check_facts()` - Up to `FACT_CHECK_ROUNDS` checks with corrections in between, raises `FactCheckFailed` when the video can't be made accurate
+- `get_hook_caption()` - 3 to 7 word on-screen hook for the first seconds
 - `get_tags()` - YouTube tags, trimmed to the 500 character limit
 - `get_most_engaging_titles()` - Content ranking and selection
 
 **utils/video.py** - Video processing and assembly
 - `generate_subtitles()` - AssemblyAI transcription with SRT equalization
 - `combine_videos()` - Concatenates stock footage to match audio duration
-- `generate_video()` - Final composition with subtitles, audio, and secondary content
+- `generate_video()` - Final composition with subtitles, the hook caption, audio, and optional secondary content
 
 **utils/audio.py** - Voice generation and audio processing
 - `generate_voiceover()` - Google Gemini TTS with custom voice (Fenrir)
@@ -94,7 +100,9 @@ This is an automated YouTube Shorts/TikTok video generation system that creates 
 - `choose()` - Thompson sampling over finished videos' scores (log of engaged views)
 - `format_examples()` - Best and worst past videos as prompt context
 
-**utils/metadata.py** - Per-video JSON in `output/<date>/<title>.json` (title, script, topic, hook style, tags, video ID, stats)
+**utils/metadata.py** - Per-video JSON in `output/<date>/<title>.json` (title, script, topic, hook style, tags, hook caption, fact check corrections, review status, video ID, stats)
+
+**review.py** - Interactive review queue: shows each pending video and its fact check corrections, then approves (uploads), rejects, or edits the title and description
 
 ### Environment Variables
 Key configurations in `.env`:
@@ -110,10 +118,14 @@ Key configurations in `.env`:
 - `VIDEO_LANGUAGE` - Language of titles and voiceover sent with uploads (default `en`)
 - `CONTAINS_SYNTHETIC_MEDIA` - Sets YouTube's altered or synthetic content disclosure
 - `ANALYTICS_WINDOW_DAYS` - Days after upload used to compare videos (default 3)
+- `USE_SECONDARY_VIDEO` - Overlay a clip from `secondary_video/` (default off)
+- `REVIEW_BEFORE_UPLOAD` - Queue videos for `python review.py` instead of uploading them (default off)
+
+The niche (`CHANNEL_NICHE`), its subtopics (`POSSIBLE_TOPICS`) and `HOOK_STYLES` are set in `config.py`.
 
 ### Execution Modes
 - **Scheduled Mode**: Uses APScheduler with cron expressions for automated generation
 - **One-time Mode**: Single execution when `RUN_ONCE=true`
 - **Docker Mode**: Containerized execution with volume mounts for credentials and content
 
-The system is designed for unattended operation, generating content based on controversial topics to maximize engagement, with comprehensive error handling and notification systems.
+The system is designed for unattended operation, generating fact-checked videos within one niche (science and space by default) and learning from each video's YouTube Analytics, with comprehensive error handling and notification systems.

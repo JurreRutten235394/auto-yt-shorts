@@ -19,8 +19,17 @@ from moviepy.editor import (
 from moviepy.video.fx.all import crop
 from moviepy.video.tools.subtitles import SubtitlesClip
 
-from config import ASSEMBLY_AI_API_KEY, OUTPUT_PATH, SECONDARY_CONTENT_PATH, TEMP_PATH
+from config import (
+    ASSEMBLY_AI_API_KEY,
+    OUTPUT_PATH,
+    SECONDARY_CONTENT_PATH,
+    TEMP_PATH,
+    USE_SECONDARY_VIDEO,
+)
 from utils.audio import get_random_background_song
+
+# How long the hook caption stays on screen at the start of the video
+HOOK_CAPTION_SECONDS = 3
 
 
 def generate_word_timestamps(audio_path: Path) -> List[dict]:
@@ -132,8 +141,46 @@ def create_karaoke_subtitles(words: List[dict], video_duration: float) -> List[T
     return subtitle_clips
 
 
+def create_hook_caption(text: str, video_width: int, duration: float) -> TextClip:
+    """Big caption shown from the first frame, above the karaoke subtitles.
+
+    The text is centred in a box that starts below the top of the frame, where
+    the Shorts player shows its own buttons, and ends above the subtitles.
+    """
+    return (
+        TextClip(
+            text,
+            font="fonts/bold_font.ttf",
+            fontsize=96,
+            color="white",
+            stroke_color="black",
+            stroke_width=5,
+            method="caption",
+            size=(int(video_width * 0.85), 480),
+            align="center",
+        )
+        .set_start(0)
+        .set_duration(min(HOOK_CAPTION_SECONDS, duration))
+        .set_pos(("center", 300))
+    )
+
+
+def add_secondary_video(result: CompositeVideoClip) -> CompositeVideoClip:
+    secondary_video = get_secondary_video_clip(result.duration)
+
+    secondary_video = secondary_video.resize(
+        (result.w, int(secondary_video.h / secondary_video.w * result.w))
+    )
+
+    secondary_video_position = ("center", result.h - secondary_video.h - 160)
+
+    return CompositeVideoClip(
+        [result, secondary_video.set_pos(secondary_video_position)]
+    )
+
+
 def generate_video_with_karaoke(
-    video_paths: List[Path], tts_path: Path
+    video_paths: List[Path], tts_path: Path, hook_caption: str = None
 ) -> Path:
     """Generate video with karaoke-style word-by-word subtitles"""
     audio = AudioFileClip(str(tts_path))
@@ -149,7 +196,12 @@ def generate_video_with_karaoke(
     # Combine video with karaoke subtitles
     video_clips = [VideoFileClip(str(combined_video_path))]
     video_clips.extend(subtitle_clips)
-    
+
+    if hook_caption:
+        video_clips.append(
+            create_hook_caption(hook_caption, video_clips[0].w, audio.duration)
+        )
+
     result = CompositeVideoClip(video_clips)
 
     # Add the audio
@@ -162,17 +214,8 @@ def generate_video_with_karaoke(
 
     result = result.set_audio(audio)
 
-    secondary_video = get_secondary_video_clip(result.duration)
-
-    secondary_video = secondary_video.resize(
-        (result.w, int(secondary_video.h / secondary_video.w * result.w))
-    )
-
-    secondary_video_position = ("center", result.h - secondary_video.h - 160)
-
-    result = CompositeVideoClip(
-        [result, secondary_video.set_pos(secondary_video_position)]
-    )
+    if USE_SECONDARY_VIDEO:
+        result = add_secondary_video(result)
 
     video_id = uuid.uuid4()
 
@@ -188,11 +231,14 @@ def generate_video_with_karaoke(
 
 
 def generate_video(
-    video_paths: List[Path], tts_path: Path, subtitles_path: Path = None
+    video_paths: List[Path],
+    tts_path: Path,
+    subtitles_path: Path = None,
+    hook_caption: str = None,
 ) -> Path:
     """Legacy function - now uses karaoke subtitles by default"""
     # Use new karaoke approach
-    return generate_video_with_karaoke(video_paths, tts_path)
+    return generate_video_with_karaoke(video_paths, tts_path, hook_caption)
 
 
 def generate_video_legacy(
@@ -231,17 +277,8 @@ def generate_video_legacy(
 
     result = result.set_audio(audio)
 
-    secondary_video = get_secondary_video_clip(result.duration)
-
-    secondary_video = secondary_video.resize(
-        (result.w, int(secondary_video.h / secondary_video.w * result.w))
-    )
-
-    secondary_video_position = ("center", result.h - secondary_video.h - 160)
-
-    result = CompositeVideoClip(
-        [result, secondary_video.set_pos(secondary_video_position)]
-    )
+    if USE_SECONDARY_VIDEO:
+        result = add_secondary_video(result)
 
     video_id = uuid.uuid4()
 
