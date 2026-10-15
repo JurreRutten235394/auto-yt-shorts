@@ -24,6 +24,41 @@ POSSIBLE_TOPICS = [
     "Controversial World Records",
 ]
 
+# Opening formulas for titles and scripts. Each run uses one, chosen from past
+# performance in the same way as the topic (see utils/performance.py).
+HOOK_STYLES = {
+    "Shock/Mystery": [
+        "You won't believe...",
+        "This will shock you...",
+        "Scientists discovered...",
+        "You've been lied to...",
+    ],
+    "Numbers/Stats": [
+        "97% of people don't know...",
+        "In just 3 seconds...",
+        "Only 1 in 1000...",
+    ],
+    "Direct Question": [
+        "Did you know that...",
+        "What if I told you...",
+        "Have you ever wondered...",
+    ],
+    "Urgency": [
+        "Before you scroll...",
+        "Stop what you're doing...",
+        "This changes everything...",
+    ],
+    "Authority": [
+        "Experts revealed...",
+        "[Celebrity name] uses this...",
+        "Billionaires know this secret...",
+    ],
+    "Contradiction": [
+        "Everyone thinks [X] but actually...",
+        "This looks normal, but...",
+    ],
+}
+
 
 OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY_AUTO_YT_SHORTS")
 
@@ -71,3 +106,14 @@ if not GEMINI_API_KEY:
 NO_UPLOAD = os.environ.get("NO_UPLOAD", "false").lower() == "true"
 
 NOTIFY_ON_SUCCESS = os.environ.get("NOTIFY_ON_SUCCESS", "false").lower() == "true"
+
+VIDEO_LANGUAGE = os.environ.get("VIDEO_LANGUAGE", "en")
+
+# Set to "true" when videos contain realistic AI-generated or altered footage
+# (https://support.google.com/youtube/answer/14328491)
+CONTAINS_SYNTHETIC_MEDIA = (
+    os.environ.get("CONTAINS_SYNTHETIC_MEDIA", "false").lower() == "true"
+)
+
+# Number of days after upload whose stats are used to compare videos
+ANALYTICS_WINDOW_DAYS = int(os.environ.get("ANALYTICS_WINDOW_DAYS", "3"))

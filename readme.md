@@ -183,6 +183,8 @@ The YouTube channel below showcases the auto-yt-shorts project in action, a few 
 > $ python update_tokens.py
 > ```
 >
+> Enable both the **YouTube Data API v3** and the **YouTube Analytics API** for the project. The login asks for upload access, read access to your channel, and read access to its analytics. Tokens created before analytics support only have upload access: run `python update_tokens.py` once to grant the rest.
+>
 > 7. Install the dependencies:
 >
 > ```console
@@ -213,6 +215,20 @@ The YouTube channel below showcases the auto-yt-shorts project in action, a few 
 > # Or for scheduled execution (runs every 6 hours in this example)
 > CRON_SCHEDULE=0 */6 * * *
 > ```
+
+### Learning from YouTube Analytics
+
+Before generating, every run pulls the stats of past uploads from the YouTube Analytics API: views, engaged views, average percentage viewed, likes, comments, shares and subscribers gained during each video's first `ANALYTICS_WINDOW_DAYS` days (default 3). They're saved in the video's metadata JSON in `output/`. A video starts counting once its window has closed and the data has had two days to settle.
+
+- **Topics and hook styles** are picked by Thompson sampling: the ones whose videos got more engaged views are picked more often, while ones with little data still get tried.
+- **Prompts** include the channel's three best and three worst videos (titles for the title prompt, scripts for the script prompt) once at least six videos have finished stats.
+- **Uploading by hand** (`NO_UPLOAD=true`) still works: videos are matched to their metadata by exact title for 30 days after generation.
+
+To sync and see what's working:
+
+```console
+$ python -m utils.analytics
+```
 
 ### With Docker
 
