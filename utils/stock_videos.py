@@ -2,11 +2,16 @@ from typing import List
 
 from config import PEXELS_API_KEY
 import logging
+import random
 import requests
 
 from utils.video import save_video
 
 logger = logging.getLogger(__name__)
+
+# Pick among this many top results so the same search term doesn't give every
+# video the same clip
+PEXELS_RESULTS = 10
 
 
 def get_stock_videos(search_terms: list[str]) -> list[str]:
@@ -26,14 +31,16 @@ def search_pexels(query: str) -> str:
 
     headers = {"Authorization": PEXELS_API_KEY}
 
-    url = f"https://api.pexels.com/videos/search?query={query}&per_page=1"
+    url = (
+        f"https://api.pexels.com/videos/search?query={query}&per_page={PEXELS_RESULTS}"
+    )
 
     r = requests.get(url, headers=headers)
 
     response = r.json()
 
     try:
-        video_urls = response["videos"][0]["video_files"]
+        video_urls = random.choice(response["videos"])["video_files"]
     except:
         logger.error(f"Error getting stock videos: {response}")
         return ""

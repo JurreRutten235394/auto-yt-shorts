@@ -94,3 +94,34 @@ def send_success_notification(message: str, context: str = ""):
             
     except Exception as e:
         logger.error(f"Failed to send success notification: {e}")
+
+
+def send_action_notification(message: str, context: str = ""):
+    """
+    Send a notification that asks the user to do something, regardless of NOTIFY_ON_SUCCESS.
+
+    Args:
+        message: What needs doing
+        context: Optional context information
+    """
+    try:
+        from config import APPRISE_URL
+
+        if not APPRISE_URL:
+            logger.info(message)
+            return
+
+        apobj = apprise.Apprise()
+        apobj.add(APPRISE_URL)
+
+        title = "Auto YT Shorts"
+        if context:
+            title += f" - {context}"
+
+        if apobj.notify(body=message, title=title):
+            logger.info("Action notification sent successfully")
+        else:
+            logger.warning("Failed to send action notification")
+
+    except Exception as e:
+        logger.error(f"Failed to send action notification: {e}")

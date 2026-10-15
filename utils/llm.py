@@ -1,18 +1,20 @@
 import json
 import logging
-import random
-from typing import List
+from typing import List, Tuple
 
 import requests
 from openai import OpenAI
 
 from config import (
+    CHANNEL_NICHE,
+    HOOK_STYLES,
     NEWS_API_KEY,
     OPENAI_API_KEY,
     OPENAI_BASE_URL,
     OPENAI_MODEL,
     POSSIBLE_TOPICS,
 )
+from utils.performance import choose, format_examples
 
 logger = logging.getLogger(__name__)
 
@@ -24,33 +26,46 @@ if OPENAI_BASE_URL:
 
 client = OpenAI(**client_kwargs)
 
-_base_prompt = """
+_base_prompt = f"""
 You are a passionate Tiktok creator and you want to create more short form content. Your videos contain a voiceover, stock footage and subtitles. 
+Your channel is about {CHANNEL_NICHE}, and every video is made for people who are interested in that.
 The content of the video is one informative, interesting or mind-blowing fact about the topic which people will find interesting.
+Every fact must be true and well documented. Never invent, exaggerate or speculate.
 Your videos are not too complex, they should bring the message across in a simple and engaging way.
 """
 
+# A script gets this many checks to pass, with corrections in between
+FACT_CHECK_ROUNDS = 3
 
-def get_topic() -> str:
-    return random.choice(POSSIBLE_TOPICS)
+
+class FactCheckFailed(Exception):
+    pass
 
 
-def get_titles(topic: str) -> List[str]:
+def get_topic(records: List[dict] = ()) -> str:
+    return choose(POSSIBLE_TOPICS, records, "topic")
+
+
+def get_hook_style(records: List[dict] = ()) -> str:
+    return choose(list(HOOK_STYLES), records, "hook_style")
+
+
+def _hook_formula(hook_style: str) -> str:
+    examples = ", ".join(f'"{example}"' for example in HOOK_STYLES[hook_style])
+    return f"- {hook_style}: {examples}"
+
+
+def get_titles(topic: str, hook_style: str, records: List[dict] = ()) -> List[str]:
     _prompt = (
         _base_prompt
-        + """
+        + f"""
 The next message will contain the name of the topic, that you want to make a Tiktok about.
 The length of the video should be between 15 and 30 seconds.
 
 Generate highly engaging titles that will stop users from scrolling. The FIRST 3 WORDS are CRITICAL - they must immediately grab attention.
 
-Use these proven viral title formulas:
-- Shock/Mystery: "You won't believe...", "This will shock you...", "Scientists discovered..."
-- Numbers/Stats: "97% of people don't know...", "In just 3 seconds...", "Only 1 in 1000..."
-- Direct Questions: "Did you know that...", "What if I told you...", "Have you ever wondered..."
-- Urgency: "Before you scroll...", "Stop what you're doing...", "This changes everything..."
-- Authority: "Experts revealed...", "[Celebrity name] uses this...", "Billionaires know this secret..."
-- Contradiction: "Everyone thinks [X] but actually...", "This looks normal, but..."
+Use this proven viral title formula:
+{_hook_formula(hook_style)}
 
 REQUIREMENTS:
 - Include a famous person, brand, or well-known entity when possible
@@ -58,7 +73,11 @@ REQUIREMENTS:
 - Create curiosity gaps that demand answers
 - Use power words: secret, revealed, discovered, shocking, hidden, truth, exposed
 - Make the first 3 words irresistible
+- Only promise what a 30 second video about a true fact can deliver
 
+{format_examples(records)}
+"""
+        + """
 Respond with JSON in the following format:
 {
     "titles": [
@@ -131,9 +150,9 @@ respond with JSON in the following format:
         .message.content
     )
     return [
-        titles[i]
-        for i in json.loads(response)["spicy_titles"]
-        if i < len(titles) and titles[i]
+        titles[i - 1]
+        for i in dict.fromkeys(json.loads(response)["spicy_titles"])
+        if 1 <= i <= len(titles) and titles[i - 1]
     ]
 
 
@@ -172,8 +191,11 @@ Respond with JSON in the following format:
 
     most_engaging_titles = json.loads(response)["most_engaging_titles"]
 
+    # The titles were numbered from 1 in the prompt
     sorted_titles = [
-        titles[i] for i in most_engaging_titles if i < len(titles) and titles[i]
+        titles[i - 1]
+        for i in dict.fromkeys(most_engaging_titles)
+        if 1 <= i <= len(titles) and titles[i - 1]
     ]
 
     return sorted_titles[: n if n < len(sorted_titles) else len(sorted_titles)]
@@ -268,7 +290,7 @@ ONLY RETURN THE RAW DESCRIPTION. DO NOT RETURN ANYTHING ELSE.
     return response
 
 
-def get_script(title: str) -> str:
+def get_script(title: str, hook_style: str, records: List[dict] = ()) -> str:
     _prompt = (
         _base_prompt
         + f"""
@@ -279,14 +301,12 @@ Create a script that hooks viewers IMMEDIATELY. The first 3-5 words are CRITICAL
 SCRIPT STRUCTURE:
 1. HOOK (0-3 seconds): Start with an attention-grabbing opener that creates instant intrigue
 2. REVELATION (3-15 seconds): Deliver the shocking/interesting fact with specific details
-3. IMPACT (15-30 seconds): End with why this matters or a memorable conclusion
+3. IMPACT (15-27 seconds): Explain why this matters
+4. LOOP (last sentence): End on a phrase that leads straight back into the opening line, so the Short sounds like one continuous thought when it replays.
+   For example, a script that opens with "Nobody can explain the Voynich manuscript." could end with "...and that's exactly why"
 
-PROVEN OPENING HOOKS:
-- Shock: "This will terrify you...", "You've been lied to...", "This changes everything..."
-- Numbers: "In 3 seconds, you'll discover...", "97% of people don't know..."
-- Questions: "What if I told you...", "Did you know that right now..."
-- Contradiction: "Everyone believes [X], but actually...", "This looks innocent, but..."
-- Urgency: "Before you scroll past this...", "Stop what you're doing..."
+OPENING HOOK FORMULA:
+{_hook_formula(hook_style)}
 
 REQUIREMENTS:
 - NO introductions, greetings, or "welcome" phrases
@@ -294,10 +314,12 @@ REQUIREMENTS:
 - Use conversational, natural speech patterns
 - Include specific names, numbers, or details when possible
 - Create curiosity that demands immediate answers
-- End with impact that makes them want to share
+- No sign-off, summary or call to action at the end: the last sentence must loop back into the first
 - 15-30 seconds of speaking time
 
 TONE: Conversational but urgent, like you're sharing an incredible secret with a friend.
+
+{format_examples(records, include_scripts=True)}
 
 ONLY RETURN THE RAW SCRIPT. DO NOT RETURN ANYTHING ELSE.
 """
@@ -355,3 +377,158 @@ Respond with JSON in the following format:
     )
 
     return json.loads(response)["search_terms"]
+
+
+def get_tags(title: str, script: str) -> List[str]:
+    _prompt = (
+        _base_prompt
+        + f"""
+You have decided on the title for your video: "{title}".
+The Script for your video is:
+{script}
+
+Generate 5 to 10 YouTube tags for the video: the people, brands, places and subjects it is about, and the phrases someone would search to find it.
+"""
+        + """
+Respond with JSON in the following format:
+{
+    "tags": [
+        "Tag 1",
+        ...
+        "Tag n"
+    ]
+}
+"""
+    )
+
+    response = (
+        client.chat.completions.create(
+            messages=[{"role": "user", "content": _prompt}],
+            response_format={"type": "json_object"},
+            model=OPENAI_MODEL,
+        )
+        .choices[0]
+        .message.content
+    )
+
+    return _fit_tag_limit(json.loads(response)["tags"])
+
+
+def _fit_tag_limit(tags: List[str], limit: int = 500) -> List[str]:
+    """Keep as many tags as fit YouTube's 500 character limit.
+
+    The separating commas count towards the limit, and so do the quotes YouTube
+    adds around tags that contain spaces.
+    """
+    kept, used = [], 0
+    for tag in tags:
+        tag = tag.replace("<", "").replace(">", "").strip().lstrip("#")
+        if not tag:
+            continue
+
+        cost = len(tag) + (2 if " " in tag else 0) + (1 if kept else 0)
+        if used + cost > limit:
+            break
+
+        kept.append(tag)
+        used += cost
+
+    return kept
+
+
+def check_facts(title: str, script: str) -> Tuple[str, List[str]]:
+    """Fact check the script, correcting it if needed.
+
+    Returns the script that passed and the problems that were corrected on the
+    way. Raises FactCheckFailed when the video can't be made accurate.
+    """
+    corrections = []
+    for _ in range(FACT_CHECK_ROUNDS):
+        result = _fact_check(title, script)
+
+        if result.get("verdict") == "pass":
+            return script, corrections
+
+        if result.get("verdict") == "fix" and result.get("script"):
+            logger.info(f"[Fact Check Corrections] {result.get('issues')}")
+            corrections += result.get("issues") or []
+            script = result["script"]
+            continue
+
+        raise FactCheckFailed("; ".join(result.get("issues") or ["no reason given"]))
+
+    raise FactCheckFailed(f"didn't pass after {FACT_CHECK_ROUNDS} checks")
+
+
+def _fact_check(title: str, script: str) -> dict:
+    _prompt = f"""
+You are a strict fact checker for a YouTube channel about {CHANNEL_NICHE}. Check this Short before it is published.
+
+Title: "{title}"
+Script:
+{script}
+
+Check every factual claim: names, numbers, dates, records, quotes and causes. A claim only passes if it is well documented and you are confident it is true. These are problems:
+- claims that are false, disputed, outdated or that you can't confirm
+- numbers or details that are more precise than the evidence supports
+- accusations against real people or companies that aren't established fact
+- a title that promises something the script doesn't deliver
+
+Then decide on a verdict:
+- "pass" if there are no problems
+- "fix" if correcting or removing the problems still leaves a good video. Rewrite the script with the smallest changes that make it accurate, keeping its opening hook, its last sentence that loops back into the opening, and its length.
+- "reject" if the title or the main fact is wrong, so no correction can save the video
+"""
+    _prompt += """
+Respond with JSON in the following format:
+{
+    "verdict": "pass | fix | reject",
+    "issues": ["What is wrong and why", ...],
+    "script": "The corrected script if the verdict is fix, otherwise the original script"
+}
+"""
+
+    response = (
+        client.chat.completions.create(
+            messages=[{"role": "user", "content": _prompt}],
+            response_format={"type": "json_object"},
+            model=OPENAI_MODEL,
+        )
+        .choices[0]
+        .message.content
+    )
+
+    return json.loads(response)
+
+
+def get_hook_caption(title: str, script: str) -> str:
+    _prompt = (
+        _base_prompt
+        + f"""
+You have decided on the title for your video: "{title}".
+The Script for your video is:
+{script}
+
+Write the text that is shown big on screen during the first 3 seconds, while the voiceover starts. It's the first thing a viewer sees and decides whether to keep watching.
+
+REQUIREMENTS:
+- 3 to 7 words
+- Makes the viewer curious about the fact without giving it away
+- Matches what the title promises and what the voiceover says first
+- No hashtags, emojis or quotation marks
+
+ONLY RETURN THE RAW TEXT. DO NOT RETURN ANYTHING ELSE.
+"""
+    )
+
+    response = (
+        client.chat.completions.create(
+            messages=[{"role": "user", "content": _prompt}],
+            response_format={"type": "text"},
+            model=OPENAI_MODEL,
+        )
+        .choices[0]
+        .message.content.strip()
+    )
+
+    return response.strip('"')

@@ -167,7 +167,7 @@ The YouTube channel below showcases the auto-yt-shorts project in action, a few 
 >
 > 4. Update the `.env` file with your API keys and other credentials.
 >
-> 5. Prefill the `music` and `secondary_video` directories with background music and secondary video content. The tool will automatically select and use these files.
+> 5. Prefill the `music` directory with background music. The tool will automatically select and use these files. The `secondary_video` directory is only used with `USE_SECONDARY_VIDEO=true` (see below).
 >
 > 6. Setup and Authenticate with YouTube using the OAuth 2.0 flow:
 >
@@ -182,6 +182,8 @@ The YouTube channel below showcases the auto-yt-shorts project in action, a few 
 > ```console
 > $ python update_tokens.py
 > ```
+>
+> Enable both the **YouTube Data API v3** and the **YouTube Analytics API** for the project. The login asks for upload access, read access to your channel, and read access to its analytics. Tokens created before analytics support only have upload access: run `python update_tokens.py` once to grant the rest.
 >
 > 7. Install the dependencies:
 >
@@ -213,6 +215,31 @@ The YouTube channel below showcases the auto-yt-shorts project in action, a few 
 > # Or for scheduled execution (runs every 6 hours in this example)
 > CRON_SCHEDULE=0 */6 * * *
 > ```
+
+### Learning from YouTube Analytics
+
+Before generating, every run pulls the stats of past uploads from the YouTube Analytics API: views, engaged views, average percentage viewed, likes, comments, shares and subscribers gained during each video's first `ANALYTICS_WINDOW_DAYS` days (default 3). They're saved in the video's metadata JSON in `output/`. A video starts counting once its window has closed and the data has had two days to settle.
+
+- **Topics and hook styles** are picked by Thompson sampling: the ones whose videos got more engaged views are picked more often, while ones with little data still get tried.
+- **Prompts** include the channel's three best and three worst videos (titles for the title prompt, scripts for the script prompt) once at least six videos have finished stats.
+- **Uploading by hand** (`NO_UPLOAD=true`) still works: videos are matched to their metadata by exact title for 30 days after generation.
+
+To sync and see what's working:
+
+```console
+$ python -m utils.analytics
+```
+
+### Making videos YouTube recommends
+
+YouTube's 2026 rules limit monetization for generic, template-based content, and since October 2026 Shorts recommendations favour original videos over reused clips. The pipeline is set up for that:
+
+- **One niche.** Every video is about `CHANNEL_NICHE` in `config.py` (science and space by default), and `POSSIBLE_TOPICS` lists its subtopics. YouTube finds viewers for a channel faster when all of its Shorts are for the same audience. To change the niche, edit both.
+- **Fact check.** Each script is checked claim by claim and corrected if needed. If it can't be made accurate, the title is dropped and the next-ranked one is tried. The check uses the same model and no web search, so it catches a lot but isn't a guarantee.
+- **Hook caption.** A 3 to 7 word caption is shown from the first frame for 3 seconds, while viewers decide whether to keep watching.
+- **Looping scripts.** The last sentence leads straight back into the first, so replays sound like one continuous video.
+- **No borrowed footage.** The clip from `secondary_video/` is off by default. Only set `USE_SECONDARY_VIDEO=true` for footage you made yourself.
+- **Review before upload (optional).** With `REVIEW_BEFORE_UPLOAD=true`, videos wait in a queue instead of being uploaded. Run `python review.py` (with Docker: `docker compose run --rm auto-yt-shorts /venv/bin/python3 review.py`) to watch each one, see what the fact check corrected, edit the title or description, and approve or reject it. Approved videos are uploaded straight away.
 
 ### With Docker
 
